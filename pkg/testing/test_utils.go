@@ -26,6 +26,42 @@ func IsLoadBalancerSupported() bool {
 	return true
 }
 
+// IsClustersSupported checks if the current environment supports cluster operations
+func IsClustersSupported() bool {
+	// Check if KIND is available
+	if !isKindAvailable() {
+		return false
+	}
+
+	// Check if we can list clusters
+	if !canListClusters() {
+		return false
+	}
+
+	return true
+}
+
+// IsInstancesSupported checks if the current environment supports instance operations
+func IsInstancesSupported() bool {
+	// Check if KIND is available
+	if !isKindAvailable() {
+		return false
+	}
+
+	// Check if we can access cluster nodes
+	if !canAccessClusterNodes() {
+		return false
+	}
+
+	return true
+}
+
+// IsProviderSupported checks if the current environment supports provider operations
+func IsProviderSupported() bool {
+	// Provider operations are always supported as they don't require external dependencies
+	return true
+}
+
 // isContainerRuntimeAvailable checks if a container runtime is available
 func isContainerRuntimeAvailable() bool {
 	// Check for Docker
@@ -55,6 +91,24 @@ func isContainerRuntimeAvailable() bool {
 	}
 
 	return false
+}
+
+// isKindAvailable checks if KIND is available
+func isKindAvailable() bool {
+	return isCommandAvailable("kind")
+}
+
+// canListClusters checks if we can list KIND clusters
+func canListClusters() bool {
+	cmd := exec.Command("kind", "get", "clusters")
+	return cmd.Run() == nil
+}
+
+// canAccessClusterNodes checks if we can access cluster nodes
+func canAccessClusterNodes() bool {
+	// Try to get nodes from any existing cluster
+	cmd := exec.Command("kind", "get", "nodes")
+	return cmd.Run() == nil
 }
 
 // isCommandAvailable checks if a command is available in PATH
@@ -220,6 +274,11 @@ func IsEnvironmentError(err error) bool {
 		"failed to create container",
 		"privileged",
 		"sysctl",
+		"kind",
+		"cluster",
+		"node",
+		"kubeconfig",
+		"kubernetes",
 	}
 
 	for _, envErr := range environmentErrors {
@@ -229,4 +288,18 @@ func IsEnvironmentError(err error) bool {
 	}
 
 	return false
+}
+
+// GetTestEnvironmentInfo returns information about the test environment
+func GetTestEnvironmentInfo() map[string]bool {
+	return map[string]bool{
+		"loadbalancer_supported": IsLoadBalancerSupported(),
+		"clusters_supported":     IsClustersSupported(),
+		"instances_supported":    IsInstancesSupported(),
+		"provider_supported":     IsProviderSupported(),
+		"docker_available":       isCommandAvailable("docker") && canUseDocker(),
+		"podman_available":       isCommandAvailable("podman") && canUsePodman(),
+		"kind_available":         isKindAvailable(),
+		"container_runtime":      isContainerRuntimeAvailable(),
+	}
 }
