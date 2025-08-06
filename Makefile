@@ -20,6 +20,9 @@ clean:
 test:
 	CGO_ENABLED=1 go test -v -race -count 1 ./...
 
+test-cloud-provider:
+	go build -v -o "$(OUT_DIR)/cloud-provider-test" cmd/test/main.go
+
 e2e:
 	cd tests && bats tests.bats
 
