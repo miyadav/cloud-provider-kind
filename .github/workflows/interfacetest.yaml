@@ -3,7 +3,7 @@ name: Interface Tests
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [useinterface]
 
 env:
   REGISTRY: ghcr.io
