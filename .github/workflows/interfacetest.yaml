@@ -1,0 +1,150 @@
+name: Interface Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: sigs.k8s.io/cloud-provider-kind
+
+permissions: write-all
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+
+      - name: Install kind
+        run: |
+          curl -Lo kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+          chmod +x kind
+          sudo mv kind /usr/local/bin/
+
+      - name: Install kubectl
+        run: |
+         curl -Lo kubectl https://dl.k8s.io/release/v1.30.0/bin/linux/amd64/kubectl
+         chmod +x kubectl
+         sudo mv kubectl /usr/local/bin/
+
+      - name: Create kind cluster
+        run: |
+          mkdir -p $HOME/.kube
+          kind create cluster \
+            --name interface-test-cluster \
+            --kubeconfig=$HOME/.kube/config
+
+      - name: Setup and Run cloud-provider-kind
+        env:
+          CLOUD_PROVIDER_KIND_VERSION: "0.6.0" 
+          CONTROL_PLANE_NODE_NAME: "interface-test-cluster-control-plane"
+        run: |
+          echo "Setting up cloud-provider-kind version ${{ env.CLOUD_PROVIDER_KIND_VERSION }}..."
+          
+          ARCHIVE_NAME="cloud-provider-kind_${{ env.CLOUD_PROVIDER_KIND_VERSION }}_linux_amd64.tar.gz"
+          EXTRACTED_BINARY_NAME="cloud-provider-kind" 
+          DOWNLOAD_URL="https://github.com/kubernetes-sigs/cloud-provider-kind/releases/download/v${{ env.CLOUD_PROVIDER_KIND_VERSION }}/${ARCHIVE_NAME}"
+          
+          echo "Downloading ${ARCHIVE_NAME} from ${DOWNLOAD_URL}..."
+          if ! curl -fSL -o ./${ARCHIVE_NAME} "${DOWNLOAD_URL}"; then
+            echo "ERROR: Failed to download ${ARCHIVE_NAME} from ${DOWNLOAD_URL}"
+            exit 1
+          fi
+          
+          echo "Extracting ${EXTRACTED_BINARY_NAME} from ${ARCHIVE_NAME}..."
+          if ! tar -xzf ./${ARCHIVE_NAME} -C ./ ${EXTRACTED_BINARY_NAME}; then
+            echo "ERROR: Failed to extract ${EXTRACTED_BINARY_NAME} from ${ARCHIVE_NAME}"
+            ls -la ./
+            exit 1
+          fi
+          
+          if [ ! -f "./${EXTRACTED_BINARY_NAME}" ]; then
+            echo "ERROR: Extracted binary ./${EXTRACTED_BINARY_NAME} not found after extraction."
+            ls -la ./
+            exit 1
+          fi
+
+          echo "Checking extracted file type..."
+          file ./${EXTRACTED_BINARY_NAME}
+          if ! file ./${EXTRACTED_BINARY_NAME} | grep -q "executable"; then
+            echo "ERROR: Extracted file ./${EXTRACTED_BINARY_NAME} is not an executable."
+            exit 1
+          fi
+          
+          chmod +x ./${EXTRACTED_BINARY_NAME}
+          sudo mv ./${EXTRACTED_BINARY_NAME} /usr/local/bin/${EXTRACTED_BINARY_NAME}
+          echo "${EXTRACTED_BINARY_NAME} installed to /usr/local/bin/"
+
+          echo "Allowing LoadBalancers to target the control-plane node..."
+          if kubectl get node "${{ env.CONTROL_PLANE_NODE_NAME }}" -o jsonpath='{.metadata.labels.node\.kubernetes\.io/exclude-from-external-load-balancers}' &> /dev/null; then
+              kubectl label node "${{ env.CONTROL_PLANE_NODE_NAME }}" node.kubernetes.io/exclude-from-external-load-balancers-
+              echo "Label 'exclude-from-external-load-balancers' removed from ${{ env.CONTROL_PLANE_NODE_NAME }}."
+          else
+              echo "Label 'exclude-from-external-load-balancers' not found on ${{ env.CONTROL_PLANE_NODE_NAME }}, or already removed."
+          fi
+
+          echo "Starting ${EXTRACTED_BINARY_NAME} in the background..."
+          nohup ${EXTRACTED_BINARY_NAME} > cloud-provider-kind.log 2>&1 &
+          
+          sleep 5
+          if pgrep -f "^${EXTRACTED_BINARY_NAME}$" > /dev/null; then
+              echo "${EXTRACTED_BINARY_NAME} started successfully. Logs are in cloud-provider-kind.log"
+          else
+              echo "ERROR: Failed to start ${EXTRACTED_BINARY_NAME}. Check cloud-provider-kind.log"
+              cat cloud-provider-kind.log
+              exit 1
+          fi
+          echo "cloud-provider-kind setup complete."
+
+      - name: Tidy Go Modules
+        run: go mod tidy
+        working-directory: ${{ github.workspace }}
+
+      - name: Build cloud-provider-test binary
+        run: make test-cloud-provider
+        working-directory: ${{ github.workspace }}
+
+      - name: Run Interface Tests - Load Balancer
+        run: |
+          ./bin/cloud-provider-test -suite loadbalancer -cluster interface-test-cluster
+        working-directory: ${{ github.workspace }}
+
+      - name: Run Interface Tests - Instances
+        run: |
+          ./bin/cloud-provider-test -suite instances -cluster interface-test-cluster
+        working-directory: ${{ github.workspace }}
+
+      - name: Run Interface Tests - Clusters
+        run: |
+          ./bin/cloud-provider-test -suite clusters -cluster interface-test-cluster
+        working-directory: ${{ github.workspace }}
+
+      - name: Run Interface Tests - Provider Name
+        run: |
+          ./bin/cloud-provider-test -suite provider-name -cluster interface-test-cluster
+        working-directory: ${{ github.workspace }}
+
+      - name: Run All Interface Tests
+        run: |
+          ./bin/cloud-provider-test -cluster interface-test-cluster
+        working-directory: ${{ github.workspace }}
+
+      - name: Upload cloud-provider-kind logs
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: cloud-provider-kind-logs
+          path: cloud-provider-kind.log
+
+      - name: Delete kind cluster
+        if: always()
+        run: kind delete cluster --name interface-test-cluster
