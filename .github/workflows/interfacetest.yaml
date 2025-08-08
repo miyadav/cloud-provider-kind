@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload cloud-provider-kind logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: cloud-provider-kind-logs
           path: cloud-provider-kind.log
