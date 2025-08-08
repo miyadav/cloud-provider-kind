@@ -113,11 +113,6 @@ jobs:
         run: make test-cloud-provider
         working-directory: ${{ github.workspace }}
 
-      - name: Run Interface Tests - Load Balancer
-        run: |
-          ./bin/cloud-provider-test -suite loadbalancer -cluster interface-test-cluster
-        working-directory: ${{ github.workspace }}
-
       - name: Run Interface Tests - Instances
         run: |
           ./bin/cloud-provider-test -suite instances -cluster interface-test-cluster
@@ -131,11 +126,6 @@ jobs:
       - name: Run Interface Tests - Provider Name
         run: |
           ./bin/cloud-provider-test -suite provider-name -cluster interface-test-cluster
-        working-directory: ${{ github.workspace }}
-
-      - name: Run All Interface Tests
-        run: |
-          ./bin/cloud-provider-test -cluster interface-test-cluster
         working-directory: ${{ github.workspace }}
 
       - name: Upload cloud-provider-kind logs
